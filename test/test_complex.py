@@ -34,3 +34,15 @@ def test_abs2():
     x = torch.stack([torch.from_numpy(np.real(x_np)), torch.from_numpy(np.imag(x_np))], dim=-1)
     xabs2 = complex.abs2(x)
     torch.testing.assert_allclose(xabs2_np, xabs2)
+
+
+def test_rfft_irfft():
+    # complex.rfft/irfft replace the removed torch.rfft/torch.irfft (packed [..., 2] real/imag, unnormalized).
+    for signal_ndim, shape in [(1, (2, 3, 9)), (2, (2, 3, 8, 7))]:
+        x_np = np.random.rand(*shape)
+        axes = tuple(range(-signal_ndim, 0))
+        X_np = np.fft.rfftn(x_np, axes=axes)
+        X = complex.rfft(torch.from_numpy(x_np), signal_ndim)
+        torch.testing.assert_allclose(X, np.stack([np.real(X_np), np.imag(X_np)], axis=-1))
+        x = complex.irfft(X, signal_ndim, signal_sizes=shape[-signal_ndim:])
+        torch.testing.assert_allclose(x, x_np)

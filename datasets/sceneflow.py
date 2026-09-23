@@ -30,6 +30,29 @@ EXAMPLE_DISPARITY_PATH = [
 ]
 
 
+def read_pfm(path):
+    """Read a PFM file as an upright (top row first) float32 array.
+
+    Not using imageio: depending on the installed plugins, imageio has either returned PFM rows bottom-up (the original
+    code flipped them back) or decoded PFM via OpenCV as uint8 (destroying the disparity values).
+    """
+    with open(path, 'rb') as f:
+        header = f.readline().rstrip()
+        if header == b'PF':
+            channels = 3
+        elif header == b'Pf':
+            channels = 1
+        else:
+            raise ValueError(f'Not a PFM file: {path}')
+        width, height = map(int, f.readline().split())
+        scale = float(f.readline().rstrip())
+        endian = '<' if scale < 0 else '>'
+        data = np.fromfile(f, dtype=endian + 'f4', count=width * height * channels)
+    shape = (height, width, channels) if channels == 3 else (height, width)
+    # PFM stores scanlines from bottom to top.
+    return np.flipud(data.reshape(shape)).astype(np.float32)
+
+
 class SceneFlow(Dataset):
 
     def __init__(self, dataset: str, image_size: Tuple[int, int], is_training: bool = True, randcrop: bool = False,
@@ -89,8 +112,8 @@ class SceneFlow(Dataset):
         disparity_dir = sample_id['disparity_dir']
         id = sample_id['id']
 
-        disparity = np.flip(imageio.imread(os.path.join(disparity_dir, f'{id}.pfm')), axis=0).astype(np.float32)
-        img = imageio.imread(os.path.join(image_dir, f'{id}.png')).astype(np.float32)
+        disparity = read_pfm(os.path.join(disparity_dir, f'{id}.pfm'))
+        img = imageio.v2.imread(os.path.join(image_dir, f'{id}.png')).astype(np.float32)
         img /= 255.  # Scale to [0, 1]
 
         img = np.pad(img,

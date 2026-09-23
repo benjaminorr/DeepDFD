@@ -6,13 +6,13 @@ import copy
 from argparse import ArgumentParser
 from collections import namedtuple
 
-import pytorch_lightning as pl
 import torch
 import torch.optim
 import torchvision.transforms
 import torchvision.utils
 from debayer import Debayer3x3
-from pytorch_lightning.metrics.regression import MeanAbsoluteError, MeanSquaredError
+from lightning.pytorch import LightningModule
+from torchmetrics.regression import MeanAbsoluteError, MeanSquaredError
 
 from models.simple_model import SimpleModel
 from optics import camera
@@ -28,17 +28,19 @@ SnapshotOutputs = namedtuple('SnapshotOutputs',
                                           'psf'])
 
 
-class SnapshotDepth(pl.LightningModule):
+class SnapshotDepth(LightningModule):
 
     def __init__(self, hparams, log_dir=None):
         super().__init__()
 
-        self.hparams = copy.deepcopy(hparams)
-        self.save_hyperparameters(self.hparams)
+        # self.hparams is a read-only property now; save_hyperparameters populates it.
+        hparams_copy = copy.deepcopy(hparams)
+        self.save_hyperparameters(hparams_copy)
 
         self.__build_model()
 
-        self.metrics = {
+        # A ModuleDict (not a plain dict) so that self.log() can find these torchmetrics.Metric objects.
+        self.metrics = torch.nn.ModuleDict({
             'depth_loss': MeanAbsoluteError(),
             'image_loss': MeanAbsoluteError(),
             'mae_depthmap': MeanAbsoluteError(),
@@ -46,7 +48,7 @@ class SnapshotDepth(pl.LightningModule):
             'mae_image': MeanAbsoluteError(),
             'mse_image': MeanSquaredError(),
             'vgg_image': MeanSquaredError(),
-        }
+        })
 
         self.log_dir = log_dir
 
@@ -61,16 +63,14 @@ class SnapshotDepth(pl.LightningModule):
         self.camera.set_image_size(image_sz)
 
     # learning rate warm-up
-    def optimizer_step(self, epoch, batch_idx, optimizer, optimizer_idx, optimizer_closure=None, on_tpu=False,
-                       using_native_amp=False, using_lbfgs=False):
+    def optimizer_step(self, epoch, batch_idx, optimizer, optimizer_closure=None):
         # warm up lr
         if self.trainer.global_step < 4000:
             lr_scale = min(1., float(self.trainer.global_step + 1) / 4000.)
             optimizer.param_groups[0]['lr'] = lr_scale * self.hparams.optics_lr
             optimizer.param_groups[1]['lr'] = lr_scale * self.hparams.cnn_lr
-        # update params
-        optimizer.step()
-        optimizer.zero_grad()
+        # update params (the closure runs training_step and backward; Lightning zeroes the gradients)
+        optimizer.step(closure=optimizer_closure)
 
     def configure_optimizers(self):
         params = [
@@ -167,8 +167,7 @@ class SnapshotDepth(pl.LightningModule):
         if batch_idx == 0:
             self.__log_images(outputs, target_images, target_depthmaps, 'validation')
 
-
-    def validation_epoch_end(self, outputs):
+    def on_validation_epoch_end(self):
         val_loss = self.__combine_loss(self.metrics['mae_depthmap'].compute(),
                                        self.metrics['vgg_image'].compute(),
                                        0.)

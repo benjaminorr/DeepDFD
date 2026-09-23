@@ -7,6 +7,8 @@ python run_trained_snapshotdepth_on_captured_images.py \
 """
 
 import os
+import sys
+import types
 from argparse import ArgumentParser
 
 import matplotlib.pyplot as plt
@@ -18,6 +20,20 @@ from snapshotdepth import SnapshotDepth
 from solvers.image_reconstruction import apply_tikhonov_inverse
 from util.fft import crop_psf
 from util.helper import crop_boundary, linear_to_srgb
+
+
+def _register_legacy_pl_compat_shim():
+    """The paper's published checkpoint was pickled under pytorch-lightning 1.0.2. Its Trainer.add_argparse_args
+    used this helper as the `type=` callable for the --gpus CLI flag, and it ended up pickled into the hparams
+    Namespace along with the parsed values. The module doesn't exist in any modern pytorch-lightning/lightning
+    release, so torch.load() can't unpickle it without this stub. The function's actual behavior is irrelevant
+    here -- nothing calls it, it just needs to be importable under this name.
+    """
+    if 'pytorch_lightning.utilities.argparse_utils' in sys.modules:
+        return
+    shim = types.ModuleType('pytorch_lightning.utilities.argparse_utils')
+    shim._gpus_arg_default = lambda x: x
+    sys.modules['pytorch_lightning.utilities.argparse_utils'] = shim
 
 
 def to_uint8(x: torch.Tensor):
@@ -60,7 +76,9 @@ def main(args):
     # This is not a default way to load the checkpoint through Lightning.
     # My code cleanup made it difficult to directly load the checkpoint from what I used for the paper.
     # So, manually loading the learnable parameters to the model.
-    ckpt = torch.load(args.ckpt_path, map_location=lambda storage, loc: storage)
+    # weights_only=False: the checkpoint also contains pickled hyperparameters (it is a trusted file).
+    _register_legacy_pl_compat_shim()
+    ckpt = torch.load(args.ckpt_path, map_location=lambda storage, loc: storage, weights_only=False)
     hparams = ckpt['hyper_parameters']
     model = SnapshotDepth(hparams=hparams)
 
@@ -123,10 +141,11 @@ def main(args):
     est_depthmaps = average_inference(est_depthmaps)
 
     # Save the results
-    skimage.io.imsave(f'data/result/{save_name}_captimg.png', to_uint8(rescale_image(capt_images)))
-    skimage.io.imsave(f'data/result/{save_name}_estimg.png', to_uint8(rescale_image(est_images)))
+    os.makedirs('data/result', exist_ok=True)
+    skimage.io.imsave(f'data/result/{save_name}_captimg.png', to_uint8(rescale_image(capt_images)).numpy())
+    skimage.io.imsave(f'data/result/{save_name}_estimg.png', to_uint8(rescale_image(est_images)).numpy())
     plt.imsave(f'data/result/{save_name}_estdepthmap.png',
-               (255 * (1 - est_depthmaps).squeeze().clamp(0, 1)).to(torch.uint8), cmap='inferno')
+               (255 * (1 - est_depthmaps).squeeze().clamp(0, 1)).to(torch.uint8).numpy(), cmap='inferno')
 
 
 if __name__ == '__main__':

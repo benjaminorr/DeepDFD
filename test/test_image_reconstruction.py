@@ -16,7 +16,7 @@ def test_compute_regularized_normal_inv():
     beta = 1.5
     compvec = torch.rand((K, 2))
     compeye = complex.eye(K)
-    M = complex.mul_with_func(compvec, complex.conj(compvec), torch.ger) + beta * compeye
+    M = complex.mul_with_func(compvec, complex.conj(compvec), torch.outer) + beta * compeye
     invM = image_reconstruction.compute_regularized_normal_inv(compvec, beta)
     MinvM = complex.mul_with_func(M, invM, torch.mm).numpy()
 
@@ -47,10 +47,10 @@ def test_tikhonov_inverse():
     beta = 1.
 
     def image_formation(x, g):
-        X = torch.rfft(x, 2)
-        G = torch.rfft(g, 2)
+        X = complex.rfft(x, 2)
+        G = complex.rfft(g, 2)
         XG = complex.multiply(X, G)
-        y = torch.sum(torch.irfft(XG, 2, signal_sizes=(H, W)), dim=0)
+        y = torch.sum(complex.irfft(XG, 2, signal_sizes=(H, W)), dim=0)
         return y
 
     y = image_formation(gt_x, psf)
@@ -86,10 +86,10 @@ def test_tikhonov_inverse_fast(num_shots, tikhonov_reg):
 
     def image_formation(x, g):
         x = x.unsqueeze(0)
-        X = torch.rfft(x, 2)
-        G = torch.rfft(g, 2)
+        X = complex.rfft(x, 2)
+        G = complex.rfft(g, 2)
         XG = complex.multiply(X, G)
-        y = torch.sum(torch.irfft(XG, 2, signal_sizes=(H, W)), dim=1)
+        y = torch.sum(complex.irfft(XG, 2, signal_sizes=(H, W)), dim=1)
         return y
 
     if tikhonov_reg:
@@ -98,10 +98,10 @@ def test_tikhonov_inverse_fast(num_shots, tikhonov_reg):
         v = None
 
     y = image_formation(gt_x, psf)
-    Y = torch.rfft(y, 2)
-    G = torch.rfft(psf, 2)
+    Y = complex.rfft(y, 2)
+    G = complex.rfft(psf, 2)
     est_X = image_reconstruction.tikhonov_inverse_fast(Y, G, v, beta, gamma)
-    est_x = torch.irfft(est_X, 2, signal_sizes=(H, W))
+    est_x = complex.irfft(est_X, 2, signal_sizes=(H, W))
 
     def loss(input):
         Ax = image_formation(input, psf)

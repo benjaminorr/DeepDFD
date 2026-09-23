@@ -1,6 +1,10 @@
 from typing import Tuple
 import os
 import glob
+
+# OpenCV no longer reads OpenEXR files unless this is set before cv2 is imported.
+os.environ.setdefault('OPENCV_IO_ENABLE_OPENEXR', '1')
+
 import torch
 import numpy as np
 import skimage.io
@@ -88,9 +92,9 @@ class DualPixel(Dataset):
                       ((self.padding, self.padding), (self.padding, self.padding), (0, 0)), mode='reflect')
 
         if self.upsample_factor != 1:
-            img = skimage.transform.rescale(img, self.upsample_factor, multichannel=True, order=3)
-            depth = skimage.transform.rescale(depth, self.upsample_factor, multichannel=True, order=3)
-            conf = skimage.transform.rescale(conf, self.upsample_factor, multichannel=True, order=3)
+            img = skimage.transform.rescale(img, self.upsample_factor, channel_axis=-1, order=3)
+            depth = skimage.transform.rescale(depth, self.upsample_factor, channel_axis=-1, order=3)
+            conf = skimage.transform.rescale(conf, self.upsample_factor, channel_axis=-1, order=3)
 
         img = torch.from_numpy(img).permute(2, 0, 1)
         depthmap = torch.from_numpy(depth).permute(2, 0, 1)

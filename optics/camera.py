@@ -74,20 +74,20 @@ class BaseCamera(nn.Module, metaclass=abc.ABCMeta):
     def _capture_impl(self, volume, layered_depth, psf, occlusion, eps=1e-3):
         scale = volume.max()
         volume = volume / scale
-        Fpsf = torch.rfft(psf, 2)
+        Fpsf = complex.rfft(psf, 2)
 
         if occlusion:
-            Fvolume = torch.rfft(volume, 2)
-            Flayered_depth = torch.rfft(layered_depth, 2)
-            blurred_alpha_rgb = torch.irfft(
+            Fvolume = complex.rfft(volume, 2)
+            Flayered_depth = complex.rfft(layered_depth, 2)
+            blurred_alpha_rgb = complex.irfft(
                 complex.multiply(Flayered_depth, Fpsf), 2, signal_sizes=volume.shape[-2:])
-            blurred_volume = torch.irfft(
+            blurred_volume = complex.irfft(
                 complex.multiply(Fvolume, Fpsf), 2, signal_sizes=volume.shape[-2:])
 
             # Normalize the blurred intensity
             cumsum_alpha = torch.flip(torch.cumsum(torch.flip(layered_depth, dims=(-3,)), dim=-3), dims=(-3,))
-            Fcumsum_alpha = torch.rfft(cumsum_alpha, 2)
-            blurred_cumsum_alpha = torch.irfft(
+            Fcumsum_alpha = complex.rfft(cumsum_alpha, 2)
+            blurred_cumsum_alpha = complex.irfft(
                 complex.multiply(Fcumsum_alpha, Fpsf), 2, signal_sizes=volume.shape[-2:])
             blurred_volume = blurred_volume / (blurred_cumsum_alpha + eps)
             blurred_alpha_rgb = blurred_alpha_rgb / (blurred_cumsum_alpha + eps)
@@ -95,9 +95,9 @@ class BaseCamera(nn.Module, metaclass=abc.ABCMeta):
             over_alpha = over_op(blurred_alpha_rgb)
             captimg = torch.sum(over_alpha * blurred_volume, dim=-3)
         else:
-            Fvolume = torch.rfft(volume, 2)
+            Fvolume = complex.rfft(volume, 2)
             Fcaptimg = complex.multiply(Fvolume, Fpsf).sum(dim=2)
-            captimg = torch.irfft(Fcaptimg, 2, signal_sizes=volume.shape[-2:])
+            captimg = complex.irfft(Fcaptimg, 2, signal_sizes=volume.shape[-2:])
 
         captimg = scale * captimg
         volume = scale * volume

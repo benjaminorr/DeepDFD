@@ -35,7 +35,7 @@ def crop_boundary(x, w):
     if w == 0:
         return x
     else:
-        return x[..., w:-w, w:-w]
+        return x[..., w:-w, w:-w].contiguous()
 
 
 def refractive_index(wavelength, a=1.5375, b=0.00829045, c=-0.000211046):

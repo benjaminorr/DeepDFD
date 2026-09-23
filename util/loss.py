@@ -2,14 +2,14 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
-from pytorch_lightning.metrics import Metric
+from torchmetrics import Metric
 
 
 class Vgg16PerceptualLoss(Metric):
 
     def __init__(self):
         super().__init__()
-        vgg16 = torchvision.models.vgg16(pretrained=True)
+        vgg16 = torchvision.models.vgg16(weights=torchvision.models.VGG16_Weights.IMAGENET1K_V1)
         self.vgg_blocks = nn.ModuleList([
             vgg16.features[:4].eval(),
             vgg16.features[4:9].eval(),

@@ -8,7 +8,7 @@ from util.edgetaper import edgetaper3d
 
 def compute_regularized_normal_inv(Hk, beta):
     K = Hk.shape[0]
-    outer_prod = complex.mul_with_func(Hk, complex.conj(Hk), torch.ger)
+    outer_prod = complex.mul_with_func(Hk, complex.conj(Hk), torch.outer)
     inner_prod = complex.mul_with_func(Hk, complex.conj(Hk), torch.dot)[0]  # imaginary part should be zero
     return 1 / beta * (complex.eye(K) - outer_prod / (beta + inner_prod))
 
@@ -22,8 +22,8 @@ def tikhonov_inverse(y, g, beta, eps=1e-2):
 
     eps || x ||^2 seems to be required for numerical stability.
     """
-    Y = torch.rfft(y, 2)[None, :, :, :]
-    G = torch.rfft(g, 2)
+    Y = complex.rfft(y, 2)[None, :, :, :]
+    G = complex.rfft(g, 2)
     Gc = complex.conj(G)
     GcY = complex.multiply(Gc, Y)
     X = torch.zeros_like(G)
@@ -34,7 +34,7 @@ def tikhonov_inverse(y, g, beta, eps=1e-2):
             Gk = Gc[:, h, w, :]
             invM = compute_regularized_normal_inv(Gk, reg)
             X[:, h, w, :] = complex.mul_with_func(invM, GcY[:, h, w, :], torch.mv)
-    return torch.irfft(X, 2, signal_sizes=g.shape[1:3])
+    return complex.irfft(X, 2, signal_sizes=g.shape[1:3])
 
 
 def tikhonov_inverse_fast(Y, G, v=None, beta=0, gamma=1e-1, dataformats='SDHW'):
@@ -93,7 +93,7 @@ def tikhonov_inverse_fast(Y, G, v=None, beta=0, gamma=1e-1, dataformats='SDHW'):
 
     # This part is still not covered in test!
     if v is not None:
-        V = gamma * torch.rfft(v, 2)
+        V = gamma * complex.rfft(v, 2)
         V_real = (V[..., 0]).reshape([batch_sz, num_colors, 1, depth, -1]).transpose(2, 4)
         V_imag = (V[..., 1]).reshape([batch_sz, num_colors, 1, depth, -1]).transpose(2, 4)
         GcY_real += V_real
@@ -158,11 +158,11 @@ def apply_tikhonov_inverse(captimg, psf, reg_tikhonov, apply_edgetaper=True):
     if apply_edgetaper:
         # Edge tapering
         captimg = edgetaper3d(captimg, psf)
-    Fpsf = torch.rfft(psf, 2)
-    Fcaptimgs = torch.rfft(captimg, 2)
+    Fpsf = complex.rfft(psf, 2)
+    Fcaptimgs = complex.rfft(captimg, 2)
     Fpsf = Fpsf.unsqueeze(2)  # add shot dim
     Fcaptimgs = Fcaptimgs.unsqueeze(2)  # add shot dim
     est_X = tikhonov_inverse_fast(Fcaptimgs, Fpsf, v=None, beta=0, gamma=reg_tikhonov,
                                   dataformats='BCSDHW')
-    est_volumes = torch.irfft(est_X, 2, signal_sizes=captimg.shape[-2:])
+    est_volumes = complex.irfft(est_X, 2, signal_sizes=captimg.shape[-2:])
     return est_volumes

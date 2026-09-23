@@ -1,0 +1,20 @@
+# Verified working versions (Python 3.12), per REPLICATION_UPGRADE_NOTES.md and setup verification.
+# Install with (recommended, in a fresh conda/venv environment named e.g. learned_defocus):
+#   pip install -r requirements.txt
+torch==2.13.0
+torchvision==0.28.0
+lightning==2.6.5
+torchmetrics==1.9.0
+kornia==0.8.3
+numpy==2.4.6
+imageio==2.37.4
+scipy==1.18.0
+scikit-image
+# opencv 5.x dropped OpenEXR support, which datasets/dualpixel.py needs for its confidence maps.
+opencv-python-headless<5
+matplotlib
+tensorboard
+tifffile
+pytest
+# Not on PyPI; installed straight from the tagged GitHub release, as the original README did.
+pytorch-debayer @ git+https://github.com/cheind/pytorch-debayer@v1.4.1
