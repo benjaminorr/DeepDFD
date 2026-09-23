@@ -146,3 +146,5 @@ CLAUDE.md
 .mcp.json
 .vscode/
 .github/
+
+data/
