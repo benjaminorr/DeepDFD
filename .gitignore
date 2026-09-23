@@ -139,3 +139,10 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
+# Added by code-review-graph
+.code-review-graph/
+.claude/
+CLAUDE.md
+.mcp.json
+.vscode/
+.github/
