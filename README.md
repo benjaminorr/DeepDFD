@@ -4,14 +4,17 @@ This is the code repository
 for [Depth from Defocus with Learned Optics for Imaging and Occlusion-aware Depth Estimation (ICCP 2021)](http://www.computationalimaging.org/publications/deepopticsdfd/)
 .
 
-## Conda environment
+## Environment
 
-Run the following command to create the conda environment.
+> This repo was originally written against Python 3.8 / PyTorch 1.7 / PyTorch Lightning 1.0.2. It has since been
+> modernized to run on current libraries; see `REPLICATION_UPGRADE_NOTES.md` for what changed and why.
+
+Create an environment (conda or venv both work) and install the pinned, verified-working dependencies:
 
 ```shell
-conda create --name learned_defocus python=3.8 kornia pytorch-lightning=1.0.2 cudatoolkit=11.0 pytorch=1.7 \
-  numpy scipy numba scikit-image torchvision matplotlib opencv pytest openexr-python -c pytorch -c conda-forge -y
-pip install git+https://github.com/cheind/pytorch-debayer@v1.0 --no-deps
+conda create --name learned_defocus python=3.12 -y
+conda activate learned_defocus
+pip install -r requirements.txt
 ```
 
 ## Dataset for training
@@ -47,7 +50,10 @@ python run_trained_snapshotdepth_on_captured_images.py \
   --captimg_path data/captured_data/outdoor1_predemosaic.tif 
 ```
 
-This inference code runs on CPU.
+This inference code runs on CPU. Note that it is memory-hungry: the Tikhonov solver builds a
+depth×depth matrix per pixel (16 depths here) across the full image resolution and a 4-way
+test-time-augmented batch, which can need tens of GB of RAM for a real ~1200×1920 capture — budget
+accordingly (e.g. request more memory if running inside a resource-limited job/container).
 
 Example input and output:
 
