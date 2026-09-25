@@ -148,3 +148,4 @@ CLAUDE.md
 .github/
 
 data/
+training_outputs/
