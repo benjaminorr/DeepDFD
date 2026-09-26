@@ -31,11 +31,17 @@ $PYTHON -c "import torch; print('torch', torch.__version__, 'cuda available:', t
 # --no-mix_dualpixel_dataset: only SceneFlow is set up under data/training_data (see the FlyingThings3D_subset
 # symlinks); the trainer defaults to mixing in DualPixel too, which isn't available here.
 $PYTHON snapshotdepth_trainer.py \
-  --batch_sz 3 \
+  --experiment_name IMX585_f50_N6.3 \
+  --batch_sz 2 \
   --max_epochs 100 \
   --optimize_optics \
   --psfjitter \
   --no-mix_dualpixel_dataset \
+  --camera_pixel_pitch 2.9e-6 \
+  --mask_sz 7940 \
+  --full_size 2160 \
+  --psf_size 128 \
+  --crop_width 64 \
   --accelerator gpu \
   --devices 1 \
   --num_workers 10
