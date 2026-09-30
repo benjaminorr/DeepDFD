@@ -338,6 +338,13 @@ class SnapshotDepth(LightningModule):
             self.logger.experiment.add_image('optics/psf', grid_psf, self.global_step)
             self.logger.experiment.add_image('optics/heightmap', heightmap, self.global_step)
 
+            # Single row of PSFs ordered by depth: min_depth (left) -> max_depth (right).
+            # Shares one intensity scale across depths (before per-depth stretching below)
+            # so that differences between depths are preserved.
+            grid_psf = torchvision.utils.make_grid(psf.transpose(0, 1),
+                                                   nrow=psf.shape[1], pad_value=1, normalize=False)
+            self.logger.experiment.add_image('optics/psf_by_depth', grid_psf, self.global_step)
+
             psf /= psf.max(dim=-1, keepdim=True)[0].max(dim=-2, keepdim=True)[0].max(dim=0, keepdim=True)[0]
             grid_psf = torchvision.utils.make_grid(psf.transpose(0, 1),
                                                    nrow=3, pad_value=1, normalize=False)
