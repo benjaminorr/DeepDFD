@@ -12,12 +12,10 @@
 #SBATCH --open-mode=append
 #SBATCH --gres=gpu:1
 #SBATCH --signal=SIGUSR1@90
-#SBATCH --array=0-2
+#SBATCH --array=0-5
 
-# Focal-length sweep emulating the Sony IMX585 (2.9 um pixels), one array task per lens. Submit with:
+# Focal-length sweep emulating the Sony IMX585 (2.9 um pixels). Submit with:
 #   sbatch run_focal_sweep.sh
-# Re-run a single lens (e.g. after it hits the time limit) with:
-#   sbatch --array=1 run_focal_sweep.sh
 # Each task resumes from its own last.ckpt, since the experiment name is fixed per focal length.
 #
 # --signal=SIGUSR1@90 lets Lightning's SLURM auto-requeue save and requeue the task before the time limit;
@@ -31,21 +29,23 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export PYTHONUNBUFFERED=1
 
 F_NUMBER=6.3
-FOCAL_DEPTH=0.5
 
 # Indexed by SLURM_ARRAY_TASK_ID. mask_sz keeps the DOE sampling pitch at ~1 um (mask_sz ~= (f/N) / 1um) and
-# must be divisible by 2 * mask_upsample_factor (20). Defocus blur at f/6.3 over 1-5 m is <= 28 px for all
-# three lenses, so the default psf_size 64 / crop_width 32 window fits.
+# must be divisible by 2 * mask_upsample_factor (20)
 FOCAL_LENGTHS_MM=(16   25   35)
 MASK_SZS=(2540 3960 5560)
+FOCAL_DEPTHS=(1.0 1.5)
 
-i=${SLURM_ARRAY_TASK_ID:?must be submitted as an array job}
-F_MM=${FOCAL_LENGTHS_MM[$i]}
-MASK_SZ=${MASK_SZS[$i]}
-EXPERIMENT_NAME="IMX585_f${F_MM}_N${F_NUMBER}"
+n_fd=${#FOCAL_DEPTHS[@]}
+li=$(( SLURM_ARRAY_TASK_ID / n_fd ))
+di=$(( SLURM_ARRAY_TASK_ID % n_fd ))
+F_MM=${FOCAL_LENGTHS_MM[$li]}
+MASK_SZ=${MASK_SZS[$li]}
+FD=${FOCAL_DEPTHS[$di]}
+EXPERIMENT_NAME="IMX585_f${F_MM}_1-3m_FD${FD}"
 
 echo "python: $PYTHON"
-echo "task $i: focal_length=${F_MM}mm f_number=$F_NUMBER mask_sz=$MASK_SZ experiment=$EXPERIMENT_NAME"
+echo "task $SLURM_ARRAY_TASK_ID: focal_length=${F_MM}mm focal_depth=${FD} mask_sz=$MASK_SZ experiment=$EXPERIMENT_NAME"
 $PYTHON -c "import torch; print('torch', torch.__version__, 'cuda available:', torch.cuda.is_available())"
 
 $PYTHON snapshotdepth_trainer.py \
@@ -58,10 +58,12 @@ $PYTHON snapshotdepth_trainer.py \
   --camera_pixel_pitch 2.9e-6 \
   --focal_length "${F_MM}e-3" \
   --f_number "$F_NUMBER" \
-  --focal_depth "$FOCAL_DEPTH" \
+  --focal_depth "$FD" \
   --mask_sz "$MASK_SZ" \
   --psf_size 64 \
   --crop_width 32 \
+  --min_depth 1.0 \
+  --max_depth 3.0 \
   --accelerator gpu \
   --devices 1 \
   --num_workers 10
