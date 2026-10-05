@@ -253,22 +253,30 @@ class BaseRotationallySymmetricCamera(BaseCamera):
             phase -= wave_number * (f_radius - focal_depth)  # subtract focal_depth to roughly remove a piston
         return amplitude, phase
 
-    def precompute_H(self, image_size):
+    def precompute_H(self, image_size, oversample=0):
         """
         This is assuming that the defocus phase doesn't change much in one pixel.
         Therefore, the mask_size has to be sufficiently large.
+
+        oversample=0 is the original sampling: one sample per pixel at (i, j) * pitch with i, j >= 1, which skips the
+        zero row/column, and the radial PSF on a grid of spacing sqrt(2) * pitch. That grid is too coarse for PSFs only
+        a few pixels wide. oversample=k samples k x k sub-pixel centers per pixel, (i - 1/2) * pitch / k, on a k times
+        finer radial grid; _psf_at_camera_impl averages them back into pixels.
         """
+        k = max(oversample, 1)
+        pitch = self.camera_pixel_pitch / k
+        offset = 0.5 if oversample else 0.
         # As this quadruple will be copied to the other three, zero is avoided.
-        coord_y = self.camera_pixel_pitch * torch.arange(1, image_size[0] // 2 + 1).reshape(-1, 1)
-        coord_x = self.camera_pixel_pitch * torch.arange(1, image_size[1] // 2 + 1).reshape(1, -1)
+        coord_y = pitch * (torch.arange(1, image_size[0] * k // 2 + 1) - offset).reshape(-1, 1)
+        coord_x = pitch * (torch.arange(1, image_size[1] * k // 2 + 1) - offset).reshape(1, -1)
         coord_y = coord_y.double()
         coord_x = coord_x.double()
         rho_sampling = torch.sqrt(coord_y ** 2 + coord_x ** 2)
 
         # Avoiding zero as the numerical derivative is not good at zero
         # sqrt(2) is for finding the diagonal of FoV.
-        rho_grid = math.sqrt(2) * self.camera_pixel_pitch * (
-                torch.arange(-1, max(image_size) // 2 + 1, dtype=torch.double) + 0.5)
+        rho_grid = math.sqrt(2) * pitch * (
+                torch.arange(-1, max(image_size) * k // 2 + 1, dtype=torch.double) + 0.5)
 
         # n_wl x 1 x n_rho_grid
         rho_grid = rho_grid.reshape(1, 1, -1) / (self.wavelengths.reshape(-1, 1, 1) * self.sensor_distance())
@@ -358,16 +366,18 @@ class MixedCamera(RotationallySymmetricCamera):
     def __init__(self, focal_depth: float, min_depth: float, max_depth: float, n_depths: int,
                  image_size: Union[int, List[int]], mask_size: int, focal_length: float, mask_diameter: float,
                  camera_pixel_pitch: float, wavelengths=[632e-9, 550e-9, 450e-9], mask_upsample_factor=1,
-                 diffraction_efficiency=0.7, full_size=100, requires_grad: bool = False):
+                 diffraction_efficiency=0.7, full_size=100, requires_grad: bool = False, psf_oversample=0):
         self.diffraction_efficiency = diffraction_efficiency
+        self.psf_oversample = psf_oversample  # see precompute_H
         super().__init__(focal_depth, min_depth, max_depth, n_depths, image_size, mask_size, focal_length,
                          mask_diameter, camera_pixel_pitch, wavelengths, full_size, mask_upsample_factor,
                          requires_grad)
 
     def build_camera(self):
-        H, rho_grid, rho_sampling = self.precompute_H(self.image_size)
+        H, rho_grid, rho_sampling = self.precompute_H(self.image_size, self.psf_oversample)
         ind = self.find_index(rho_grid, rho_sampling)
 
+        # Only the 1D profile is used from this one (psf_out_of_fov_energy), so it keeps the original sampling.
         H_full, rho_grid_full, rho_sampling_full = self.precompute_H(self.full_size)
         ind_full = self.find_index(rho_grid_full, rho_sampling_full)
 
@@ -433,10 +443,13 @@ class MixedCamera(RotationallySymmetricCamera):
 
     def _psf_at_camera_impl(self, H, rho_grid, rho_sampling, ind, size, scene_distances, modulate_phase):
         # As this quadruple will be copied to the other three, rho = 0 is avoided.
+        k = max(self.psf_oversample, 1)
         psf1d = self.psf1d(H, scene_distances, modulate_phase)
         psf_rd = F.relu(cubicspline.interp(rho_grid, psf1d, rho_sampling, ind).float())
-        psf_rd = psf_rd.reshape(self.n_wl, self.n_depths, size[0] // 2, size[1] // 2)
-        return copy_quadruple(psf_rd)
+        psf_rd = psf_rd.reshape(self.n_wl, self.n_depths, size[0] * k // 2, size[1] * k // 2)
+        psf = copy_quadruple(psf_rd)
+        # A pixel integrates the light over its area: average its k x k sub-pixel samples.
+        return F.avg_pool2d(psf, k) if k > 1 else psf
 
     def psf_at_camera(self, size=None, modulate_phase=torch.tensor(True), is_training=torch.tensor(False)):
         device = self.H.device

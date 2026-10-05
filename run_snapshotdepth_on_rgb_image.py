@@ -71,7 +71,8 @@ from optics import independent_sim
 from snapshotdepth import SnapshotDepth
 from solvers.image_reconstruction import apply_tikhonov_inverse
 from util.fft import crop_psf, fftshift
-from util.helper import crop_boundary, ips_to_metric, linear_to_srgb, metric_to_ips, srgb_to_linear, to_bayer
+from util.helper import crop_boundary, ips_to_metric, linear_to_srgb, metric_to_ips, srgb_to_linear, tile_starts, \
+    to_bayer
 from util.monodepth import estimate_metric_depth
 
 DEFAULT_EXPERIMENT = 'IMX585_f25_1-3m_FD1.5'
@@ -233,33 +234,31 @@ def reconstruct(model, raw, args, device):
     capt[:, 2] *= args.wb_gains[1]
     capt = capt / capt.max()
 
-    tile, m = args.tile_size, args.tile_overlap
-    pad = cw + m
+    h, w = capt.shape[-2:]
+    tile = min(args.tile_size, h, w) // 2 * 2
+    pad = cw + args.tile_overlap
     tile_in = tile + 2 * pad
     psf_size = max(tile_in, max(model.camera.image_size))
     psf = model.camera.normalize_psf(model.camera.psf_at_camera(size=(psf_size, psf_size)).unsqueeze(0))
     psf_cropped = crop_psf(psf, tile_in)
 
-    h, w = capt.shape[-2:]
-    n_ty, n_tx = -(-h // tile), -(-w // tile)
-    capt_p = F.pad(F.pad(capt, (pad,) * 4, mode='reflect'), (0, n_tx * tile - w, 0, n_ty * tile - h))
-    est_img = torch.zeros(1, 3, n_ty * tile, n_tx * tile)
-    est_depth = torch.zeros(1, 1, n_ty * tile, n_tx * tile)
-    for ty in range(n_ty):
-        for tx in range(n_tx):
-            y0, x0 = ty * tile, tx * tile
-            x = capt_p[..., y0:y0 + tile_in, x0:x0 + tile_in].to(device)
-            x = flip_tta(x) if args.tta else x
-            pinv_volumes = apply_tikhonov_inverse(x, psf_cropped, hp.reg_tikhonov, apply_edgetaper=True)
-            out = model.decoder(captimgs=x, pinv_volumes=pinv_volumes)
-            ei, ed = out.est_images, out.est_depthmaps
-            if args.tta:
-                ei, ed = unflip_tta(ei), unflip_tta(ed)
-            est_img[..., y0:y0 + tile, x0:x0 + tile] = crop_boundary(ei, pad).cpu()
-            est_depth[..., y0:y0 + tile, x0:x0 + tile] = crop_boundary(ed, pad).cpu()
-            print(f'\rtile {ty * n_tx + tx + 1}/{n_ty * n_tx}', end='', flush=True)
+    capt_p = F.pad(capt, (pad,) * 4, mode='reflect')
+    est_img = torch.zeros(1, 3, h, w)
+    est_depth = torch.zeros(1, 1, h, w)
+    starts = [(y0, x0) for y0 in tile_starts(h, tile) for x0 in tile_starts(w, tile)]
+    for i, (y0, x0) in enumerate(starts):
+        x = capt_p[..., y0:y0 + tile_in, x0:x0 + tile_in].to(device)
+        x = flip_tta(x) if args.tta else x
+        pinv_volumes = apply_tikhonov_inverse(x, psf_cropped, hp.reg_tikhonov, apply_edgetaper=True)
+        out = model.decoder(captimgs=x, pinv_volumes=pinv_volumes)
+        ei, ed = out.est_images, out.est_depthmaps
+        if args.tta:
+            ei, ed = unflip_tta(ei), unflip_tta(ed)
+        est_img[..., y0:y0 + tile, x0:x0 + tile] = crop_boundary(ei, pad).cpu()
+        est_depth[..., y0:y0 + tile, x0:x0 + tile] = crop_boundary(ed, pad).cpu()
+        print(f'\rtile {i + 1}/{len(starts)}', end='', flush=True)
     print()
-    return capt, est_img[..., :h, :w], est_depth[..., :h, :w]
+    return capt, est_img, est_depth
 
 
 def to_hwc(x):

@@ -102,6 +102,11 @@ def metric_to_ips(d, min_depth, max_depth):
     return (max_depth * d - max_depth * min_depth) / ((max_depth - min_depth) * d)
 
 
+def tile_starts(n, tile):
+    """Start offsets of tiles of size `tile` covering range(n); the last tile is shifted back to end at n."""
+    return sorted({min(i, n - tile) for i in range(0, n, tile)})
+
+
 def copy_quadruple(x_rd):
     x_ld = torch.flip(x_rd, dims=(-2,))
     x_d = torch.cat([x_ld, x_rd], dim=-2)

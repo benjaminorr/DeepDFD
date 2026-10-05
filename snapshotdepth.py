@@ -266,6 +266,8 @@ class SnapshotDepth(LightningModule):
         camera_recipe['mask_upsample_factor'] = hparams.mask_upsample_factor
         camera_recipe['diffraction_efficiency'] = hparams.diffraction_efficiency
         camera_recipe['full_size'] = hparams.full_size
+        # Checkpoints from before this option was added used the original PSF sampling.
+        camera_recipe['psf_oversample'] = hparams.get('psf_oversample', 0)
         self.camera = camera.MixedCamera(**camera_recipe, requires_grad=optimize_optics)
 
         self.decoder = SimpleModel(hparams)
@@ -405,6 +407,9 @@ class SnapshotDepth(LightningModule):
         parser.add_argument('--full_size', type=int, default=1920)
         parser.add_argument('--mask_upsample_factor', type=int, default=10)
         parser.add_argument('--diffraction_efficiency', type=float, default=0.7)
+        parser.add_argument('--psf_oversample', type=int, default=4,
+                            help='PSF samples per pixel side, averaged into pixels; 0 = the original (coarser) '
+                                 'sampling, which checkpoints trained before this option use')
 
         parser.add_argument('--bayer', dest='bayer', action='store_true')
         parser.add_argument('--no-bayer', dest='bayer', action='store_false')

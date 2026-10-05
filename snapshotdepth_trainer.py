@@ -156,6 +156,9 @@ def main(args):
     ckpt_path = find_resume_checkpoint(ckpt_dir)
     if ckpt_path is not None:
         print(f'Resuming from {ckpt_path} (use a different --experiment_name to start a new experiment)')
+        # The PSF sampling is part of the saved model state, so resume with the one the run started with.
+        hparams = torch.load(ckpt_path, map_location='cpu', weights_only=False)['hyper_parameters']
+        args.psf_oversample = hparams.get('psf_oversample', 0)
     else:
         print(f'Starting a new experiment and logging at \n {os.path.expanduser(logger.log_dir)}')
 

@@ -20,7 +20,7 @@ import torch
 import torch.nn.functional as F
 
 from util.fft import fftshift
-from util.helper import depthmap_to_layereddepth, heightmap_to_phase, refractive_index
+from util.helper import depthmap_to_layereddepth, heightmap_to_phase, refractive_index, tile_starts
 
 # Three samples across each color filter's band (a box approximation of the Bayer filter responses), in meters.
 BAND_WAVELENGTHS = [
@@ -100,26 +100,23 @@ def render_layered(camera, img_linear, depth_ips, psf, tile=1024, device='cuda')
     n_layers, n = psf.shape[1], psf.shape[-1]
     halo = n // 2
     h, w = img_linear.shape[-2:]
-    n_ty, n_tx = -(-h // tile), -(-w // tile)
-    # Reflect by the halo; the rest of the last tile only produces output that is cropped away.
-    fill = (0, n_tx * tile - w, 0, n_ty * tile - h)
-    img_p = F.pad(F.pad(img_linear, (halo,) * 4, mode='reflect'), fill)
-    depth_p = F.pad(F.pad(depth_ips, (halo,) * 4, mode='reflect'), fill)
+    tile = min(tile, h, w)
+    img_p = F.pad(img_linear, (halo,) * 4, mode='reflect')
+    depth_p = F.pad(depth_ips, (halo,) * 4, mode='reflect')
 
     size = tile + 2 * halo
     p = (size - n) // 2
     psf = fftshift(F.pad(psf, (p, size - n - p, p, size - n - p)), dims=(-1, -2)).unsqueeze(0).to(device)
 
-    out = torch.zeros(1, 3, n_ty * tile, n_tx * tile)
-    for ty in range(n_ty):
-        for tx in range(n_tx):
-            y0, x0 = ty * tile, tx * tile
+    out = torch.zeros_like(img_linear)
+    for y0 in tile_starts(h, tile):
+        for x0 in tile_starts(w, tile):
             sl = (..., slice(y0, y0 + size), slice(x0, x0 + size))
             layered = depthmap_to_layereddepth(depth_p[sl].to(device), n_layers, binary=True)
             volume = layered * img_p[sl].to(device)[:, :, None]
             captimg, _ = camera._capture_impl(volume, layered, psf, occlusion=True)
             out[..., y0:y0 + tile, x0:x0 + tile] = captimg[..., halo:halo + tile, halo:halo + tile].cpu()
-    return out[..., :h, :w]
+    return out
 
 
 def mosaic_rggb(img):
