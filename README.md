@@ -34,6 +34,10 @@ python snapshotdepth_trainer.py \
   --gpus 4 --batch_sz 3 --distributed_backend ddp  --max_epochs 100  --optimize_optics  --psfjitter  --replace_sampler_ddp False
 ```
 
+New runs sample the PSF with `--psf_oversample 4` (4×4 samples per pixel on a finer radial grid; see
+`precompute_H` in `optics/camera.py`). The original code's coarser sampling distorts PSFs that are only a few pixels
+wide; it is `--psf_oversample 0`, which checkpoints trained before this option keep using, also when resumed.
+
 ## Checkpoint and captured data
 
 An example of a trained checkpoint and a trained DOE is available from
@@ -60,6 +64,25 @@ Example input and output:
 ![Example input](result/indoor1_captimg.jpg)
 ![Example estimated image](result/indoor1_estimg.jpg)
 ![Example estimated depth](result/indoor1_estdepthmap.jpg)
+
+## How to run a trained model on an ordinary RGB photo
+
+`run_snapshotdepth_on_rgb_image.py` simulates a raw coded capture of an all-in-focus photo with a checkpoint's learned
+DOE, then reconstructs it the same way as a real capture. The scene depth for the simulation comes from Depth Anything
+V2 by default (see [third_party/README.md](third_party/README.md) for the weights); `--fit_depth_range` maps it onto the
+model's trained depth range instead of clamping.
+
+By default the capture is simulated independently of the model's own image formation, to avoid the "inverse crime"
+(`optics/independent_sim.py`: PSFs from the 2D pupil by matrix Fourier transform, several wavelengths per color
+channel, finer depth and spatial sampling, Poisson + read noise, 12-bit raw); `--simulator model` uses the model's own
+image formation instead, as an optimistic reference. `test/test_independent_psf.py` checks that the two PSF
+implementations agree. `--raw_path` reconstructs a real RGGB raw capture. See the script's docstring for the other
+options.
+
+```shell
+python run_snapshotdepth_on_rgb_image.py --img_path data/sample_img/IMX585_test.jpg \
+  --experiment IMX585_f25_1-3m_FD1.5 --fit_depth_range
+```
 
 ## Raw data for the fabricated DOE
 
