@@ -1,4 +1,5 @@
 from typing import Tuple
+import glob
 import os
 import torch
 import numpy as np
@@ -10,24 +11,34 @@ from kornia.filters import gaussian_blur2d
 
 # 'left' image has negative disparity.
 DATA_ROOT = os.path.join('data', 'training_data', 'SceneFlow')
-TRAIN_IMAGE_PATH = [
-    os.path.join(DATA_ROOT, 'FlyingThings3D_subset', 'train', 'image_clean', s) for s in ['right']
-]
-TRAIN_DISPARITY_PATH = [
-    os.path.join(DATA_ROOT, 'FlyingThings3D_subset_disparity', 'train', 'disparity', s) for s in ['right']
-]
-VALIDATION_IMAGE_PATH = [
-    os.path.join(DATA_ROOT, 'FlyingThings3D_subset', 'val', 'image_clean', s) for s in ['right']
-]
-VALIDATION_DISPARITY_PATH = [
-    os.path.join(DATA_ROOT, 'FlyingThings3D_subset_disparity', 'val', 'disparity', s) for s in ['right']
-]
-EXAMPLE_IMAGE_PATH = [
-    os.path.join(DATA_ROOT, 'example', 'FlyingThings3D', 'RGB_cleanpass', 'left')
-]
-EXAMPLE_DISPARITY_PATH = [
-    os.path.join(DATA_ROOT, 'example', 'FlyingThings3D', 'disparity')
-]
+
+
+def _subset_dirs(root, dataset):
+    """Image/disparity dirs for the FlyingThings3D subset layout:
+    <root>/FlyingThings3D_subset{,_disparity}/{train,val}/..."""
+    if dataset == 'example':
+        return ([os.path.join(root, 'example', 'FlyingThings3D', 'RGB_cleanpass', 'left')],
+                [os.path.join(root, 'example', 'FlyingThings3D', 'disparity')])
+    image_dirs = [
+        os.path.join(root, 'FlyingThings3D_subset', dataset, 'image_clean', s) for s in ['right']
+    ]
+    disparity_dirs = [
+        os.path.join(root, 'FlyingThings3D_subset_disparity', dataset, 'disparity', s) for s in ['right']
+    ]
+    return image_dirs, disparity_dirs
+
+
+def _full_dirs(root, dataset):
+    """Image/disparity dirs for the complete FlyingThings3D layout:
+    <root>/{frames_cleanpass,disparity}/{TRAIN,TEST}/{A,B,C}/<sequence>/right"""
+    if dataset == 'example':
+        raise ValueError(f'The complete FlyingThings3D layout ({root}) has no "example" split.')
+    split = {'train': 'TRAIN', 'val': 'TEST'}[dataset]
+    image_root = os.path.join(root, 'frames_cleanpass')
+    # Sorted so that sample order (and hence the trainer's index-based train/val split) is deterministic.
+    image_dirs = sorted(glob.glob(os.path.join(image_root, split, '*', '*', 'right')))
+    disparity_dirs = [os.path.join(root, 'disparity', os.path.relpath(d, image_root)) for d in image_dirs]
+    return image_dirs, disparity_dirs
 
 
 def read_pfm(path):
@@ -56,26 +67,27 @@ def read_pfm(path):
 class SceneFlow(Dataset):
 
     def __init__(self, dataset: str, image_size: Tuple[int, int], is_training: bool = True, randcrop: bool = False,
-                 augment: bool = False, padding: int = 0, singleplane: bool = False, n_depths: int = 16):
+                 augment: bool = False, padding: int = 0, singleplane: bool = False, n_depths: int = 16,
+                 root: str = DATA_ROOT):
         """
         SceneFlow dataset is downloaded from
         https://lmb.informatik.uni-freiburg.de/resources/datasets/SceneFlowDatasets.en.html
         Virtual image sensor size: 960 px x 540 px  or 32mm x 18mm
         Virtual focal length: 35mmx
         Baseline: 1 Blender unit
+
+        root may be laid out either like the FlyingThings3D subset (the default) or like the complete
+        FlyingThings3D (detected by a frames_cleanpass/ dir; 'val' then maps to its TEST split).
         """
         super().__init__()
-        if dataset == 'train':
-            image_dirs = TRAIN_IMAGE_PATH
-            disparity_dirs = TRAIN_DISPARITY_PATH
-        elif dataset == 'val':
-            image_dirs = VALIDATION_IMAGE_PATH
-            disparity_dirs = VALIDATION_DISPARITY_PATH
-        elif dataset == 'example':
-            image_dirs = EXAMPLE_IMAGE_PATH
-            disparity_dirs = EXAMPLE_DISPARITY_PATH
-        else:
+        if dataset not in ('train', 'val', 'example'):
             raise ValueError(f'dataset ({dataset}) has to be "train," "val," or "example."')
+        if os.path.isdir(os.path.join(root, 'frames_cleanpass')):
+            image_dirs, disparity_dirs = _full_dirs(root, dataset)
+        else:
+            image_dirs, disparity_dirs = _subset_dirs(root, dataset)
+        if not image_dirs:
+            raise FileNotFoundError(f'No SceneFlow "{dataset}" images found under {root}')
 
         self.transform = RandomTransform(image_size, randcrop, augment)
         self.centercrop = CenterCrop(image_size)

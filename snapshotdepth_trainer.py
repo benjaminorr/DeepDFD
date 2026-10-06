@@ -8,7 +8,7 @@ from lightning.pytorch.loggers import TensorBoardLogger
 from torch.utils.data import ConcatDataset, DataLoader
 
 from datasets.dualpixel import DualPixel
-from datasets.sceneflow import SceneFlow
+from datasets.sceneflow import DATA_ROOT as SCENEFLOW_ROOT, SceneFlow
 from snapshotdepth import SnapshotDepth
 from util.log_manager import LogManager, find_resume_checkpoint
 
@@ -22,23 +22,34 @@ def prepare_data(hparams):
     randcrop = hparams.randcrop
 
     padding = 0
-    val_idx = 3994
     sf_train_dataset = SceneFlow('train',
                                  (image_sz + 4 * crop_width,
                                   image_sz + 4 * crop_width),
                                  is_training=True,
                                  randcrop=randcrop, augment=augment, padding=padding,
-                                 singleplane=False)
-    sf_train_dataset = torch.utils.data.Subset(sf_train_dataset,
-                                               range(val_idx, len(sf_train_dataset)))
+                                 singleplane=False, root=hparams.sceneflow_root)
+    if hparams.sceneflow_val_split:
+        # Train on all of the 'train' split and validate on the separate 'val' split (TEST for the complete
+        # FlyingThings3D).
+        sf_val_dataset = SceneFlow('val',
+                                   (image_sz + 4 * crop_width,
+                                    image_sz + 4 * crop_width),
+                                   is_training=False,
+                                   randcrop=randcrop, augment=augment, padding=padding,
+                                   singleplane=False, root=hparams.sceneflow_root)
+    else:
+        # Hold out the first val_idx samples of the 'train' split for validation.
+        val_idx = 3994
+        sf_train_dataset = torch.utils.data.Subset(sf_train_dataset,
+                                                   range(val_idx, len(sf_train_dataset)))
 
-    sf_val_dataset = SceneFlow('train',
-                               (image_sz + 4 * crop_width,
-                                image_sz + 4 * crop_width),
-                               is_training=False,
-                               randcrop=randcrop, augment=augment, padding=padding,
-                               singleplane=False)
-    sf_val_dataset = torch.utils.data.Subset(sf_val_dataset, range(val_idx))
+        sf_val_dataset = SceneFlow('train',
+                                   (image_sz + 4 * crop_width,
+                                    image_sz + 4 * crop_width),
+                                   is_training=False,
+                                   randcrop=randcrop, augment=augment, padding=padding,
+                                   singleplane=False, root=hparams.sceneflow_root)
+        sf_val_dataset = torch.utils.data.Subset(sf_val_dataset, range(val_idx))
 
     if hparams.mix_dualpixel_dataset:
         dp_train_dataset = DualPixel('train',
@@ -187,6 +198,12 @@ if __name__ == '__main__':
     parser.add_argument('--mix_dualpixel_dataset', dest='mix_dualpixel_dataset', action='store_true')
     parser.add_argument('--no-mix_dualpixel_dataset', dest='mix_dualpixel_dataset', action='store_false')
     parser.set_defaults(mix_dualpixel_dataset=True)
+    parser.add_argument('--sceneflow_root', type=str, default=SCENEFLOW_ROOT,
+                        help='SceneFlow data root: either the FlyingThings3D subset layout (default) or the '
+                             'complete FlyingThings3D (containing frames_cleanpass/ and disparity/).')
+    parser.add_argument('--sceneflow_val_split', default=False, action='store_true',
+                        help="Train on all of SceneFlow's 'train' split and validate on its 'val' split, instead of "
+                             "holding out the first 3994 'train' samples for validation.")
 
     # Trainer parameters
     parser.add_argument('--default_root_dir', type=str, default='data/logs')

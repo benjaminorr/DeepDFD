@@ -12,7 +12,7 @@
 #SBATCH --open-mode=append
 #SBATCH --gres=gpu:1
 #SBATCH --signal=SIGUSR1@90
-#SBATCH --array=0-5
+#SBATCH --array=0-3
 
 # Focal-length sweep emulating the Sony IMX585 (2.9 um pixels). Submit with:
 #   sbatch run_focal_sweep.sh
@@ -32,8 +32,8 @@ F_NUMBER=6.3
 
 # Indexed by SLURM_ARRAY_TASK_ID. mask_sz keeps the DOE sampling pitch at ~1 um (mask_sz ~= (f/N) / 1um) and
 # must be divisible by 2 * mask_upsample_factor (20)
-FOCAL_LENGTHS_MM=(16   25   35)
-MASK_SZS=(2540 3960 5560)
+FOCAL_LENGTHS_MM=(25   35)
+MASK_SZS=(3960 5560)
 FOCAL_DEPTHS=(1.0 1.5)
 
 n_fd=${#FOCAL_DEPTHS[@]}
@@ -42,7 +42,7 @@ di=$(( SLURM_ARRAY_TASK_ID % n_fd ))
 F_MM=${FOCAL_LENGTHS_MM[$li]}
 MASK_SZ=${MASK_SZS[$li]}
 FD=${FOCAL_DEPTHS[$di]}
-EXPERIMENT_NAME="IMX585_f${F_MM}_1-3m_FD${FD}"
+EXPERIMENT_NAME="IMX585_f${F_MM}_1-3m_FD${FD}_aug"
 
 echo "python: $PYTHON"
 echo "task $SLURM_ARRAY_TASK_ID: focal_length=${F_MM}mm focal_depth=${FD} mask_sz=$MASK_SZ experiment=$EXPERIMENT_NAME"
@@ -55,6 +55,9 @@ $PYTHON snapshotdepth_trainer.py \
   --optimize_optics \
   --psfjitter \
   --no-mix_dualpixel_dataset \
+  --sceneflow_val_split \
+  --randcrop \
+  --augment \
   --camera_pixel_pitch 2.9e-6 \
   --focal_length "${F_MM}e-3" \
   --f_number "$F_NUMBER" \
